@@ -1,0 +1,1 @@
+# conad-anti-waste-addon
