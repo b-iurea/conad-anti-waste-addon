@@ -1,7 +1,7 @@
 # Conad Anti Waste — repository add-on per Home Assistant
 
 Questo repository contiene l'add-on che fa girare il servizio
-[conad-anti-waste](https://github.com/USERNAME/conad-anti-waste) dentro Home
+[conad-anti-waste](https://github.com/b-iurea/conad-anti-waste-ha) dentro Home
 Assistant.
 
 ## Installazione

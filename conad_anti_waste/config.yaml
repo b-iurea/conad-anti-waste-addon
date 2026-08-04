@@ -2,7 +2,7 @@ name: Conad Anti Waste
 version: "1.0.0"
 slug: conad_anti_waste
 description: Inventario domestico della spesa Conad — scadenze, anti-riacquisto, lista spesa
-url: https://github.com/USERNAME/conad-anti-waste-addon
+url: https://github.com/b-iurea/conad-anti-waste-addon
 arch:
   - amd64
   - aarch64
