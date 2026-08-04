@@ -1,0 +1,12 @@
+# Il Dockerfile parte dall'immagine Playwright, che è multi-arch (amd64 e
+# arm64): non servono base image diverse per architettura, ma il Supervisor
+# vuole comunque la mappa.
+build_from:
+  amd64: mcr.microsoft.com/playwright/python:v1.49.1-noble
+  aarch64: mcr.microsoft.com/playwright/python:v1.49.1-noble
+
+labels:
+  org.opencontainers.image.title: Conad Anti Waste
+  org.opencontainers.image.description: Inventario domestico della spesa Conad
+  org.opencontainers.image.source: https://github.com/USERNAME/conad-anti-waste-addon
+  org.opencontainers.image.licenses: MIT

@@ -1,0 +1,61 @@
+name: Conad Anti Waste
+version: "1.0.0"
+slug: conad_anti_waste
+description: Inventario domestico della spesa Conad — scadenze, anti-riacquisto, lista spesa
+url: https://github.com/USERNAME/conad-anti-waste-addon
+arch:
+  - amd64
+  - aarch64
+init: false
+startup: application
+boot: auto
+
+# La dashboard web esistente compare nella sidebar di Home Assistant,
+# autenticata da HA. Nessuna porta viene pubblicata sull'host: l'API resta
+# raggiungibile solo dalla rete interna degli add-on, dove vive anche HA Core.
+ingress: true
+ingress_port: 8000
+panel_icon: mdi:food-apple
+panel_title: Anti Waste
+panel_admin: true
+
+# Decommentare per esporre l'API anche sulla LAN (sconsigliato: gli endpoint
+# POST non hanno autenticazione).
+# ports:
+#   8000/tcp: null
+# ports_description:
+#   8000/tcp: API e dashboard (senza autenticazione)
+
+# Il login Conad gira un Chrome vero su display virtuale. Servono più memoria
+# condivisa del default e la possibilità di creare namespace per il browser.
+shm_size: 512m
+
+options:
+  conad_email: ""
+  conad_password: ""
+  telegram_bot_token: ""
+  telegram_allowed_chat_ids: ""
+  enable_bot: false
+  daily_prompt_hour: "20:30"
+  weekly_reckoning_day: sun
+  weekly_reckoning_hour: "18:00"
+  expiry_warn_days: 2
+  refresh_interval_hours: 24
+  login_cooldown_hours: 6
+  log_level: info
+
+schema:
+  conad_email: email
+  conad_password: password
+  telegram_bot_token: str?
+  telegram_allowed_chat_ids: str?
+  enable_bot: bool
+  daily_prompt_hour: match(^([01]\d|2[0-3]):[0-5]\d$)
+  weekly_reckoning_day: list(mon|tue|wed|thu|fri|sat|sun)
+  weekly_reckoning_hour: match(^([01]\d|2[0-3]):[0-5]\d$)
+  expiry_warn_days: int(0,30)
+  refresh_interval_hours: int(1,168)
+  login_cooldown_hours: int(1,48)
+  log_level: list(trace|debug|info|notice|warning|error|fatal)
+
+image: ghcr.io/USERNAME/conad-anti-waste-{arch}
