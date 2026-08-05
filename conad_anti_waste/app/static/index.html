@@ -1,0 +1,946 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Anti-spreco · Inventario di casa</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+/* ── Design tokens ───────────────────────────────────────────────────────
+   Chart colours come from a validated palette (categorical slots 1-4 and the
+   fixed status ramp). Both modes are *selected*, not an automatic flip: the
+   dark steps are stepped for the dark surface. Never edit one mode alone. */
+:root {
+  color-scheme: light;
+  --page:        #f9f9f7;
+  --surface:     #fcfcfb;
+  --surface-2:   #f2f2ee;
+  --ink:         #0b0b0b;
+  --ink-2:       #52514e;
+  --ink-muted:   #898781;
+  --grid:        #e1e0d9;
+  --axis:        #c3c2b7;
+  --border:      rgba(11,11,11,.12);
+  --border-firm: rgba(11,11,11,.22);
+  --accent:      #1c5cab;
+  --accent-ink:  #ffffff;
+  --focus:       #2a78d6;
+
+  --series-1: #2a78d6;  --series-2: #eb6834;
+  --series-3: #1baf7a;  --series-4: #eda100;
+
+  --good:     #0ca30c;  --warning:  #fab219;
+  --serious:  #ec835a;  --critical: #d03b3b;
+  --good-ink: #006300;  --critical-ink: #a52121;
+
+  --r-card: 12px; --r-ctl: 8px;
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  --shadow: 0 1px 2px rgba(11,11,11,.05), 0 4px 12px rgba(11,11,11,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+    --ink:#ffffff; --ink-2:#c3c2b7; --ink-muted:#898781;
+    --grid:#2c2c2a; --axis:#383835;
+    --border:rgba(255,255,255,.12); --border-firm:rgba(255,255,255,.24);
+    --accent:#3987e5; --accent-ink:#0d0d0d; --focus:#6da7ec;
+    --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
+    --good-ink:#0ca30c; --critical-ink:#e66767;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page:#0d0d0d; --surface:#1a1a19; --surface-2:#232322;
+  --ink:#ffffff; --ink-2:#c3c2b7; --ink-muted:#898781;
+  --grid:#2c2c2a; --axis:#383835;
+  --border:rgba(255,255,255,.12); --border-firm:rgba(255,255,255,.24);
+  --accent:#3987e5; --accent-ink:#0d0d0d; --focus:#6da7ec;
+  --series-1:#3987e5; --series-2:#d95926; --series-3:#199e70; --series-4:#c98500;
+  --good-ink:#0ca30c; --critical-ink:#e66767;
+  --shadow: none;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--page); color: var(--ink);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-synthesis-weight: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; }
+}
+
+/* Focus: always visible, never removed. */
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+:focus:not(:focus-visible) { outline: none; }
+
+.skip {
+  position: absolute; left: -9999px; top: 0; z-index: 100;
+  background: var(--accent); color: var(--accent-ink);
+  padding: var(--sp-3) var(--sp-4); border-radius: 0 0 var(--r-ctl) 0; font-weight: 600;
+}
+.skip:focus { left: 0; }
+
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 var(--sp-4); }
+
+/* ── Header ───────────────────────────────────────────────────────────── */
+header.app {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  position: sticky; top: 0; z-index: 20;
+}
+.bar { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-4) 0; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: var(--sp-2); margin-right: auto; }
+.brand h1 { font-size: 17px; margin: 0; letter-spacing: -.01em; }
+.brand .sub { color: var(--ink-2); font-size: 13px; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 600;
+  border: 1px solid var(--border-firm); background: var(--surface-2); color: var(--ink-2);
+}
+.pill .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.pill.ok      { color: var(--good-ink); }
+.pill.bad     { color: var(--critical-ink); }
+
+button, select, input {
+  font: inherit; color: var(--ink); background: var(--surface);
+  border: 1px solid var(--border-firm); border-radius: var(--r-ctl);
+  padding: 7px 12px; cursor: pointer;
+}
+input, select { cursor: auto; }
+button:hover:not(:disabled) { background: var(--surface-2); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+button.icon { padding: 7px 9px; line-height: 1; }
+button.link { border: none; background: none; padding: 4px 6px; text-decoration: underline; }
+
+/* ── Tabs (ARIA tab pattern, roving tabindex) ─────────────────────────── */
+[role="tablist"] { display: flex; gap: var(--sp-1); overflow-x: auto; padding-bottom: 0; }
+[role="tab"] {
+  border: none; background: none; border-radius: 0;
+  border-bottom: 3px solid transparent; padding: var(--sp-3) var(--sp-4);
+  color: var(--ink-2); font-weight: 600; white-space: nowrap;
+}
+[role="tab"]:hover { color: var(--ink); background: var(--surface-2); }
+[role="tab"][aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+[role="tab"] .count {
+  font-weight: 700; font-size: 12px; margin-left: 6px; padding: 1px 7px;
+  border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+[role="tabpanel"] { padding: var(--sp-5) 0 var(--sp-6); }
+[role="tabpanel"]:focus-visible { outline-offset: -3px; }
+
+/* ── Cards & tiles ────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r-card); padding: var(--sp-5); box-shadow: var(--shadow);
+  margin-bottom: var(--sp-4);
+}
+.card > h2 { font-size: 16px; margin: 0 0 var(--sp-1); letter-spacing: -.01em; }
+.card > .hint { color: var(--ink-2); font-size: 13.5px; margin: 0 0 var(--sp-4); max-width: 68ch; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card); padding: var(--sp-4); box-shadow: var(--shadow); }
+.tile dt { font-size: 12.5px; color: var(--ink-2); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+.tile dd { margin: 0; font-size: 26px; font-weight: 650; letter-spacing: -.02em; line-height: 1.1; }
+.tile .note { font-size: 12.5px; color: var(--ink-2); font-weight: 400; margin-top: 4px; display: block; letter-spacing: 0; }
+.tile.alert { border-color: var(--critical); }
+.tile.alert dd { color: var(--critical-ink); }
+
+/* ── Charts ───────────────────────────────────────────────────────────── */
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: var(--sp-4); }
+figure.chart { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-card); padding: var(--sp-4); box-shadow: var(--shadow); }
+figure.chart figcaption { font-size: 15px; font-weight: 650; margin-bottom: 2px; }
+figure.chart .sub { font-size: 13px; color: var(--ink-2); margin-bottom: var(--sp-3); }
+.canvas-box { position: relative; height: 240px; }
+.canvas-box .empty { position: absolute; inset: 0; margin: 0; display: grid; place-content: center; text-align: center; }
+figure.chart details { margin-top: var(--sp-3); border-top: 1px solid var(--border); padding-top: var(--sp-2); }
+figure.chart summary { font-size: 13px; color: var(--ink-2); cursor: pointer; padding: 4px 0; }
+figure.chart summary:hover { color: var(--ink); }
+
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+caption { text-align: left; color: var(--ink-2); font-size: 13px; padding-bottom: var(--sp-2); }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+th { font-weight: 650; color: var(--ink-2); font-size: 12.5px; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ── Inventory rows ───────────────────────────────────────────────────── */
+.toolbar { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; margin-bottom: var(--sp-4); }
+.chips { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
+/* The :hover rule above outranks a plain attribute selector, so a selected chip
+   would go pale-on-white while hovered. State must beat hover, not lose to it. */
+.chip[aria-pressed="true"],
+.chip[aria-pressed="true"]:hover {
+  background: var(--accent); border-color: var(--accent);
+  color: var(--accent-ink); font-weight: 600;
+}
+.search { min-width: 200px; flex: 1; }
+
+ul.rows { list-style: none; margin: 0; padding: 0; }
+ul.rows > li {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-2); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+ul.rows > li:last-child { border-bottom: none; }
+.item-name { flex: 1 1 240px; min-width: 0; }
+.item-name .n { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item-name .m { font-size: 12.5px; color: var(--ink-2); }
+.actions { display: flex; gap: var(--sp-1); flex: none; }
+
+/* Status badges pair an icon + text: colour never carries meaning alone. */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  font-size: 12.5px; font-weight: 650; padding: 3px 9px; border-radius: 999px;
+  border: 1px solid; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.badge.b-crit { color: var(--critical-ink); border-color: var(--critical); background: color-mix(in srgb, var(--critical) 12%, transparent); }
+.badge.b-warn { color: var(--ink); border-color: var(--serious); background: color-mix(in srgb, var(--serious) 16%, transparent); }
+.badge.b-soon { color: var(--ink); border-color: var(--warning); background: color-mix(in srgb, var(--warning) 20%, transparent); }
+.badge.b-ok   { color: var(--good-ink); border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, transparent); }
+.badge.b-none { color: var(--ink-2); border-color: var(--border-firm); background: var(--surface-2); }
+
+.empty { color: var(--ink-2); padding: var(--sp-5); text-align: center; border: 1px dashed var(--border-firm); border-radius: var(--r-ctl); }
+.lede { font-size: 13.5px; color: var(--ink-2); }
+.split { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--sp-4); }
+.stack > * + * { margin-top: var(--sp-3); }
+.field { display: grid; gap: 5px; margin-bottom: var(--sp-3); }
+.field label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { display: inline-flex; align-items: center; gap: 6px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 6px 3px 11px; font-size: 13px; }
+
+/* Live region for action feedback. */
+#status {
+  position: fixed; left: 50%; bottom: var(--sp-5); transform: translateX(-50%);
+  background: var(--ink); color: var(--page); padding: 10px 18px; border-radius: var(--r-ctl);
+  font-size: 14px; font-weight: 500; box-shadow: 0 6px 24px rgba(0,0,0,.22);
+  opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; max-width: 90vw;
+}
+#status.on { opacity: 1; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+@media (forced-colors: active) {
+  .badge, .card, .tile, figure.chart { border: 1px solid CanvasText; }
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Salta al contenuto</a>
+
+<header class="app">
+  <div class="wrap">
+    <div class="bar">
+      <div class="brand">
+        <span aria-hidden="true" style="font-size:22px">🥗</span>
+        <div>
+          <h1>Anti-spreco</h1>
+          <span class="sub">Inventario di casa · Conad</span>
+        </div>
+      </div>
+      <p id="session" class="pill"><span class="dot" aria-hidden="true"></span><span>Controllo sessione…</span></p>
+      <button id="btnImport" class="primary" type="button">Importa ordine</button>
+      <button id="btnTheme" class="icon" type="button" aria-label="Cambia tema chiaro/scuro">
+        <span aria-hidden="true">◐</span>
+      </button>
+    </div>
+    <nav aria-label="Sezioni">
+      <div role="tablist" aria-label="Sezioni della dashboard">
+        <button role="tab" id="tab-inv"   aria-controls="panel-inv"   aria-selected="true"  tabindex="0">
+          Inventario <span class="count" id="cInv">–</span></button>
+        <button role="tab" id="tab-waste" aria-controls="panel-waste" aria-selected="false" tabindex="-1">
+          Sprechi</button>
+        <button role="tab" id="tab-shop"  aria-controls="panel-shop"  aria-selected="false" tabindex="-1">
+          Spesa <span class="count" id="cShop">–</span></button>
+        <button role="tab" id="tab-meals" aria-controls="panel-meals" aria-selected="false" tabindex="-1">
+          Piatti</button>
+        <button role="tab" id="tab-fix"   aria-controls="panel-fix"   aria-selected="false" tabindex="-1">
+          Da correggere <span class="count" id="cFix">–</span></button>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main id="main" class="wrap" tabindex="-1">
+
+  <!-- ── Inventario ─────────────────────────────────────────────────── -->
+  <section role="tabpanel" id="panel-inv" aria-labelledby="tab-inv" tabindex="0">
+    <dl class="tiles" id="invTiles"></dl>
+    <div class="card">
+      <h2>Cosa c'è in casa</h2>
+      <p class="hint">Ordinato per scadenza. Segna cosa hai consumato o buttato: è quello
+        che tiene vero l'inventario e migliora le stime di scadenza.</p>
+      <div class="toolbar">
+        <div class="chips" role="group" aria-label="Filtra per zona" id="zoneChips"></div>
+        <label class="sr-only" for="q">Cerca un prodotto</label>
+        <input class="search" id="q" type="search" placeholder="Cerca un prodotto…" autocomplete="off">
+      </div>
+      <ul class="rows" id="invRows"></ul>
+      <p id="invMore" class="lede" hidden></p>
+    </div>
+  </section>
+
+  <!-- ── Sprechi ────────────────────────────────────────────────────── -->
+  <section role="tabpanel" id="panel-waste" aria-labelledby="tab-waste" tabindex="0" hidden>
+    <div id="complianceWarn"></div>
+    <dl class="tiles" id="wasteTiles"></dl>
+
+    <div class="grid-2">
+      <figure class="chart">
+        <figcaption>Sprecato ogni settimana</figcaption>
+        <p class="sub">Euro di cibo buttato, ultime 12 settimane.</p>
+        <div class="canvas-box"><canvas id="chWeek" role="img" aria-label="Grafico a barre dello spreco settimanale in euro"></canvas></div>
+        <details><summary>Vedi come tabella</summary><div id="tWeek"></div></details>
+      </figure>
+
+      <figure class="chart">
+        <figcaption>Consumato o sprecato</figcaption>
+        <p class="sub">Su tutti i prodotti che hai segnato.</p>
+        <div class="canvas-box"><canvas id="chSplit" role="img" aria-label="Grafico ad anello: quota di prodotti consumati contro sprecati"></canvas></div>
+        <details><summary>Vedi come tabella</summary><div id="tSplit"></div></details>
+      </figure>
+
+      <figure class="chart">
+        <figcaption>Dove sprechi di più</figcaption>
+        <p class="sub">Euro persi per categoria di prodotto.</p>
+        <div class="canvas-box"><canvas id="chCat" role="img" aria-label="Grafico a barre orizzontali dello spreco per categoria"></canvas></div>
+        <details><summary>Vedi come tabella</summary><div id="tCat"></div></details>
+      </figure>
+
+      <figure class="chart">
+        <figcaption>Quanto tempo resta</figcaption>
+        <p class="sub">Prodotti alimentari in casa per fascia di scadenza.</p>
+        <div class="canvas-box"><canvas id="chUrg" role="img" aria-label="Grafico a barre dei prodotti per fascia di scadenza"></canvas></div>
+        <details><summary>Vedi come tabella</summary><div id="tUrg"></div></details>
+      </figure>
+
+      <figure class="chart">
+        <figcaption>Dove sta la roba</figcaption>
+        <p class="sub">Prodotti in casa per zona di conservazione.</p>
+        <div class="canvas-box"><canvas id="chZone" role="img" aria-label="Grafico a barre dei prodotti per zona di conservazione"></canvas></div>
+        <details><summary>Vedi come tabella</summary><div id="tZone"></div></details>
+      </figure>
+    </div>
+  </section>
+
+  <!-- ── Spesa ──────────────────────────────────────────────────────── -->
+  <section role="tabpanel" id="panel-shop" aria-labelledby="tab-shop" tabindex="0" hidden>
+    <div class="split">
+      <div class="card">
+        <h2>Serve</h2>
+        <p class="hint" id="shopHorizon">Finito, o non basta fino al prossimo ordine.</p>
+        <ul class="rows" id="shopServe"></ul>
+      </div>
+      <div class="card">
+        <h2>Hai già — non ricomprare</h2>
+        <p class="hint">Ne hai scorta per più di un mese, secondo quanto lo consumi davvero.</p>
+        <ul class="rows" id="shopHave"></ul>
+      </div>
+    </div>
+    <div class="card" id="shopUnknownBox" hidden>
+      <h2>Finiti, ma senza storico</h2>
+      <p class="hint">Non ci sono ancora abbastanza consumi registrati per stimare se ti servono:
+        te li segnalo senza dare un giudizio.</p>
+      <ul class="rows" id="shopUnknown"></ul>
+    </div>
+  </section>
+
+  <!-- ── Piatti ─────────────────────────────────────────────────────── -->
+  <section role="tabpanel" id="panel-meals" aria-labelledby="tab-meals" tabindex="0" hidden>
+    <div class="card">
+      <h2>Piatti ricorrenti</h2>
+      <p class="hint">Un piatto è una lista di ingredienti. Segnarlo scala tutto in un colpo:
+        è il modo più veloce di tenere aggiornato l'inventario, da qui o da Telegram.</p>
+      <ul class="rows" id="mealRows"></ul>
+    </div>
+    <div class="card">
+      <h2>Nuovo piatto</h2>
+      <div class="field">
+        <label for="mName">Nome del piatto</label>
+        <input id="mName" type="text" placeholder="Caprese" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="mSearch">Aggiungi ingredienti</label>
+        <input id="mSearch" type="search" placeholder="Cerca fra i prodotti in casa…" autocomplete="off"
+               aria-describedby="mHelp" role="combobox" aria-expanded="false" aria-controls="mResults">
+        <span id="mHelp" class="lede">Cerca e premi il pulsante ＋ per aggiungere.</span>
+      </div>
+      <ul class="rows" id="mResults"></ul>
+      <div class="field">
+        <span class="label" id="chosenLbl" style="font-size:13px;font-weight:600;color:var(--ink-2)">Ingredienti scelti</span>
+        <div class="tags" id="mChosen" aria-labelledby="chosenLbl" aria-live="polite"></div>
+      </div>
+      <button class="primary" type="button" id="btnSaveMeal">Salva piatto</button>
+    </div>
+  </section>
+
+  <!-- ── Da correggere ──────────────────────────────────────────────── -->
+  <section role="tabpanel" id="panel-fix" aria-labelledby="tab-fix" tabindex="0" hidden>
+    <div class="card">
+      <h2>Prodotti non riconosciuti</h2>
+      <p class="hint">Le regole non hanno capito cosa sono, quindi hanno una scadenza prudenziale
+        di 7 giorni in frigo. Correggerli migliora scadenze, avvisi e statistiche —
+        e la tua correzione non verrà mai sovrascritta.</p>
+      <ul class="rows" id="fixRows"></ul>
+    </div>
+  </section>
+</main>
+
+<div id="status" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const $  = s => document.querySelector(s);
+const el = (t, p = {}) => Object.assign(document.createElement(t), p);
+const eur = n => (n ?? 0).toFixed(2).replace(".", ",") + " €";
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+
+const state = { zone: null, q: "", items: [], chosen: [], charts: {} };
+
+/** Name + optional secondary line, the shared shape of every list row. */
+function nameCell(text, meta) {
+  const d = el("div", { className: "item-name" });
+  d.append(el("span", { className: "n", textContent: text }));
+  if (meta) d.append(el("span", { className: "m", textContent: meta }));
+  return d;
+}
+
+function say(msg) {
+  const n = $("#status");
+  n.textContent = msg; n.classList.add("on");
+  clearTimeout(say._t); say._t = setTimeout(() => n.classList.remove("on"), 3200);
+}
+
+async function api(url, opts) {
+  const r = await fetch(url, opts);
+  if (!r.ok) {
+    const d = await r.json().catch(() => ({}));
+    throw new Error(d.detail || `${r.status} ${r.statusText}`);
+  }
+  return r.status === 204 ? null : r.json();
+}
+const send = (url, body, method = "POST") => api(url, {
+  method, headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body || {}),
+});
+
+/* ── Tabs: full keyboard support (arrows, Home, End) ───────────────────── */
+const tabs = [...document.querySelectorAll('[role="tab"]')];
+function selectTab(tab, focus = true) {
+  tabs.forEach(t => {
+    const on = t === tab;
+    t.setAttribute("aria-selected", String(on));
+    t.tabIndex = on ? 0 : -1;
+    document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+  });
+  if (focus) tab.focus();
+  // Chart.js cannot size a canvas inside a hidden panel, so charts are drawn
+  // the first time their panel becomes visible.
+  if (tab.id === "tab-waste") loadStats();
+}
+tabs.forEach(tab => {
+  tab.addEventListener("click", () => selectTab(tab, false));
+  tab.addEventListener("keydown", e => {
+    const i = tabs.indexOf(tab);
+    const map = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 };
+    if (!(e.key in map)) return;
+    e.preventDefault();
+    selectTab(tabs[(map[e.key] + tabs.length) % tabs.length]);
+  });
+});
+
+/* ── Expiry semantics: icon + word + number, never colour alone ────────── */
+function expiry(days, nonFood) {
+  // Detersivi e carta non scadono: si esauriscono. Dirlo esplicitamente evita
+  // di far sembrare un dato mancante quello che è una proprietà del prodotto.
+  if (nonFood) return { cls: "b-none", icon: "∞", text: "non scade" };
+  if (days === null || days === undefined) return { cls: "b-none", icon: "—", text: "senza scadenza" };
+  if (days < 0)   return { cls: "b-crit", icon: "⨯", text: `scaduto da ${Math.abs(days)} g` };
+  if (days === 0) return { cls: "b-warn", icon: "!",  text: "scade oggi" };
+  if (days <= 2)  return { cls: "b-warn", icon: "!",  text: `${days} g` };
+  if (days <= 7)  return { cls: "b-soon", icon: "◔",  text: `${days} g` };
+  return { cls: "b-ok", icon: "✓", text: `${days} g` };
+}
+function badge(days, nonFood) {
+  const e = expiry(days, nonFood);
+  const b = el("span", { className: `badge ${e.cls}` });
+  b.append(el("span", { textContent: e.icon, "aria-hidden": "true" }), el("span", { textContent: e.text }));
+  b.setAttribute("aria-label", nonFood ? "Prodotto non alimentare, non scade" : "Scadenza: " + e.text);
+  return b;
+}
+const ZONES = { frigo: "Frigo", freezer: "Freezer", dispensa: "Dispensa", non_food: "Non alimentari" };
+
+/* ── Inventory ─────────────────────────────────────────────────────────── */
+async function loadInventory() {
+  const d = await api("/api/inventory");
+  state.items = d.items;
+  $("#cInv").textContent = d.counts.total;
+
+  const food = d.items.filter(i => i.is_food);
+  const value = d.items.reduce((s, i) => s + (i.value_eur || 0), 0);
+  $("#invTiles").innerHTML = `
+    <div class="tile"><dt>In casa</dt><dd>${d.counts.total}<span class="note">prodotti, ${food.length} alimentari</span></dd></div>
+    <div class="tile ${d.counts.expired ? "alert" : ""}"><dt>Scaduti</dt><dd>${d.counts.expired}<span class="note">da sistemare</span></dd></div>
+    <div class="tile"><dt>In scadenza</dt><dd>${d.counts.expiring}<span class="note">entro 3 giorni</span></dd></div>
+    <div class="tile"><dt>Valore</dt><dd>${eur(value)}<span class="note">merce in casa</span></dd></div>`;
+  renderZoneChips();
+  renderRows();
+}
+
+function renderZoneChips() {
+  const counts = state.items.reduce((a, i) => (a[i.storage_zone] = (a[i.storage_zone] || 0) + 1, a), {});
+  const box = $("#zoneChips");
+  box.textContent = "";
+  [[null, "Tutto"], ...Object.entries(ZONES)].forEach(([z, label]) => {
+    const n = z === null ? state.items.length : (counts[z] || 0);
+    const b = el("button", { type: "button", className: "chip", textContent: `${label} (${n})` });
+    b.setAttribute("aria-pressed", String(state.zone === z));
+    b.onclick = () => { state.zone = z; renderZoneChips(); renderRows(); };
+    box.append(b);
+  });
+}
+
+function renderRows() {
+  const q = state.q.toLowerCase();
+  const rows = state.items.filter(i =>
+    (!state.zone || i.storage_zone === state.zone) &&
+    (!q || i.display_name.toLowerCase().includes(q)));
+
+  const list = $("#invRows");
+  list.textContent = "";
+  if (!rows.length) {
+    list.append(el("li", { className: "empty", textContent: state.items.length
+      ? "Nessun prodotto corrisponde a questi filtri."
+      : "Inventario vuoto. Usa «Importa ordine» per caricare l'ultimo ordine Conad." }));
+    $("#invMore").hidden = true;
+    return;
+  }
+  rows.slice(0, 150).forEach(i => list.append(row(i)));
+  $("#invMore").hidden = rows.length <= 150;
+  $("#invMore").textContent = `Mostrati 150 di ${rows.length} prodotti.`;
+}
+
+function row(i) {
+  const li = el("li");
+  li.append(badge(i.days_left, !i.is_food));
+
+  const meta = [ZONES[i.storage_zone] || i.storage_zone];
+  if (i.qty_remaining !== 1) meta.push(`× ${i.qty_remaining}`);
+  if (i.unit_size) meta.push(i.unit_size);
+  if (i.value_eur) meta.push(eur(i.value_eur));
+  li.append(nameCell(i.display_name, meta.join(" · ")));
+
+  const acts = el("div", { className: "actions" });
+  const mk = (label, aria, fn) => {
+    const b = el("button", { type: "button", textContent: label });
+    b.setAttribute("aria-label", `${aria}: ${i.display_name}`);
+    b.onclick = fn; return b;
+  };
+  if (i.is_food) {
+    acts.append(
+      mk("Mangiato", "Segna come mangiato", () => logEvent(i, "consumed")),
+      mk("Buttato",  "Segna come buttato",  () => logEvent(i, "wasted")),
+      mk("Ancora buono", "Segna ancora buono e sposta la scadenza", () => keep(i)),
+    );
+  } else {
+    // Detersivi, carta, igiene: non scadono, si consumano. Un solo gesto —
+    // "finito" — li toglie dalla dispensa e tiene giusto l'anti-riacquisto.
+    acts.append(mk("Finito", "Segna come finito e togli dalla dispensa",
+                   () => logEvent(i, "consumed", "finito")));
+  }
+  li.append(acts);
+  return li;
+}
+
+async function logEvent(item, kind, verb) {
+  await send(`/api/lots/${item.lot_id}/event`, { kind, qty: 1 });
+  say(`${item.display_name}: ${verb || (kind === "consumed" ? "mangiato" : "buttato")}`);
+  refresh();
+}
+async function keep(item) {
+  await send(`/api/lots/${item.lot_id}/expiry`, { extend_days: 5 });
+  say(`${item.display_name}: ancora buono, scadenza spostata di 5 giorni`);
+  refresh();
+}
+
+/* ── Charts ────────────────────────────────────────────────────────────── */
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+function baseOpts() {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    animation: matchMedia("(prefers-reduced-motion: reduce)").matches ? false : { duration: 300 },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: css("--ink"), titleColor: css("--page"), bodyColor: css("--page"),
+        padding: 10, cornerRadius: 6, displayColors: true, boxPadding: 4,
+      },
+    },
+    scales: {
+      x: { grid: { display: false }, border: { color: css("--axis") },
+           ticks: { color: css("--ink-muted"), font: { size: 11 } } },
+      y: { beginAtZero: true, grid: { color: css("--grid"), drawTicks: false },
+           border: { display: false }, ticks: { color: css("--ink-muted"), font: { size: 11 } } },
+    },
+  };
+}
+
+/**
+ * Draw a chart, or say plainly that there is nothing to plot.
+ * An empty grid with a 0–1 axis looks like a broken chart rather than an
+ * honest "no data yet", so we never render one.
+ */
+function draw(id, cfg, hasData = true, emptyMsg = "Ancora nessun dato.") {
+  state.charts[id]?.destroy();
+  const canvas = document.getElementById(id);
+  if (!canvas) return;
+  const box = canvas.parentElement;
+  box.querySelector(".empty")?.remove();
+
+  if (!hasData) {
+    canvas.hidden = true;
+    box.append(el("p", { className: "empty", textContent: emptyMsg }));
+    return;
+  }
+  canvas.hidden = false;
+  state.charts[id] = new Chart(canvas, cfg);
+}
+const sum = a => a.reduce((x, y) => x + y, 0);
+
+function table(mount, cols, rows, caption) {
+  const t = el("table");
+  t.append(el("caption", { textContent: caption }));
+  const thead = el("thead"), tr = el("tr");
+  cols.forEach((c, n) => tr.append(el("th", { textContent: c, scope: "col", className: n ? "num" : "" })));
+  thead.append(tr); t.append(thead);
+  const tb = el("tbody");
+  rows.forEach(r => {
+    const x = el("tr");
+    r.forEach((v, n) => x.append(el(n ? "td" : "th", {
+      textContent: v, className: n ? "num" : "", scope: n ? "" : "row" })));
+    tb.append(x);
+  });
+  t.append(tb);
+  mount.textContent = ""; mount.append(t);
+}
+
+async function loadStats() {
+  const s = await api("/api/stats");
+  const c = s.compliance;
+  const rate = s.waste_rate === null ? "—" : Math.round(s.waste_rate * 100) + " %";
+
+  $("#wasteTiles").innerHTML = `
+    <div class="tile ${s.wasted_eur > 0 ? "alert" : ""}"><dt>Sprecato</dt><dd>${eur(s.wasted_eur)}<span class="note">${s.wasted_qty} prodotti buttati</span></dd></div>
+    <div class="tile"><dt>Tasso di spreco</dt><dd>${rate}<span class="note">sul totale segnato</span></dd></div>
+    <div class="tile ${s.at_risk_eur > 0 ? "alert" : ""}"><dt>A rischio</dt><dd>${eur(s.at_risk_eur)}<span class="note">scade entro 3 giorni</span></dd></div>
+    <div class="tile"><dt>Valore in casa</dt><dd>${eur(s.stock_value_eur)}<span class="note">merce non consumata</span></dd></div>
+    <div class="tile"><dt>Costanza</dt><dd>${c.streak} g<span class="note">segnati ${c.days_logged} giorni su ${c.days_window}</span></dd></div>`;
+
+  // If nothing is being logged, every number above is fiction. Say so.
+  $("#complianceWarn").innerHTML = c.rate < 0.3 ? `
+    <div class="card" style="border-color:var(--serious)">
+      <h2>⚠️ Pochi dati registrati</h2>
+      <p class="hint" style="margin:0">Hai segnato consumi in ${c.days_logged} giorni su ${c.days_window}.
+      Finché l'inventario non viene aggiornato con costanza, i numeri qui sotto
+      descrivono più il silenzio che i tuoi sprechi reali.</p>
+    </div>` : "";
+
+  const ink = css("--ink-2");
+
+  /* Weekly waste — one series, so no legend; the caption names it. */
+  draw("chWeek", {
+    type: "bar",
+    data: { labels: s.weekly.map(w => w.label),
+            datasets: [{ label: "€ sprecati", data: s.weekly.map(w => w.eur),
+                         backgroundColor: css("--critical"), borderRadius: 4,
+                         borderSkipped: "bottom", maxBarThickness: 34 }] },
+    options: { ...baseOpts(), plugins: { ...baseOpts().plugins,
+      tooltip: { ...baseOpts().plugins.tooltip,
+        callbacks: { label: x => `${x.parsed.y.toFixed(2).replace(".", ",")} € sprecati` } } } },
+  }, sum(s.weekly.map(w => w.eur)) > 0, "Nessuno spreco registrato nelle ultime 12 settimane.");
+  table($("#tWeek"), ["Settimana", "€ sprecati", "Prodotti"],
+        s.weekly.map(w => [w.label, w.eur.toFixed(2).replace(".", ","), w.qty]),
+        "Spreco per settimana");
+
+  /* Consumed vs wasted — status pair, always with a legend + labels. */
+  const split = [s.consumed_qty, s.wasted_qty];
+  draw("chSplit", {
+    type: "doughnut",
+    data: { labels: ["Consumato", "Sprecato"],
+            datasets: [{ data: split, backgroundColor: [css("--good"), css("--critical")],
+                         borderColor: css("--surface"), borderWidth: 2, hoverOffset: 6 }] },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "58%",
+      plugins: { legend: { display: true, position: "bottom",
+                           labels: { color: ink, boxWidth: 12, boxHeight: 12, padding: 14 } },
+                 tooltip: baseOpts().plugins.tooltip } },
+  }, split[0] + split[1] > 0, "Segna qualche prodotto come mangiato o buttato per vedere la quota.");
+  const tot = split[0] + split[1];
+  table($("#tSplit"), ["Esito", "Prodotti", "Quota"],
+        [["Consumato", split[0], tot ? Math.round(split[0] / tot * 100) + " %" : "—"],
+         ["Sprecato",  split[1], tot ? Math.round(split[1] / tot * 100) + " %" : "—"]],
+        "Consumato contro sprecato");
+
+  /* Waste by category — one series, horizontal for long Italian labels. */
+  const cat = s.by_category.slice(0, 8);
+  draw("chCat", {
+    type: "bar",
+    data: { labels: cat.map(c => c.category),
+            datasets: [{ label: "€ sprecati", data: cat.map(c => c.eur),
+                         backgroundColor: css("--series-1"), borderRadius: 4,
+                         borderSkipped: "left", maxBarThickness: 22 }] },
+    options: { ...baseOpts(), indexAxis: "y",
+      scales: { x: { beginAtZero: true, grid: { color: css("--grid"), drawTicks: false },
+                     border: { display: false }, ticks: { color: css("--ink-muted"), font: { size: 11 } } },
+                y: { grid: { display: false }, border: { color: css("--axis") },
+                     ticks: { color: ink, font: { size: 11.5 } } } } },
+  }, cat.length > 0, "Nessuno spreco registrato per categoria.");
+  table($("#tCat"), ["Categoria", "€ sprecati", "Prodotti"],
+        cat.map(c => [c.category, c.eur.toFixed(2).replace(".", ","), c.qty]),
+        "Spreco per categoria");
+
+  drawStockCharts();
+}
+
+/* Urgency + zone read the inventory we already hold — no extra request. */
+function drawStockCharts() {
+  const food = state.items.filter(i => i.is_food);
+  const buckets = [
+    { k: "Scaduti",      c: css("--critical"), n: food.filter(i => i.days_left < 0).length },
+    { k: "Entro 2 g",    c: css("--serious"),  n: food.filter(i => i.days_left >= 0 && i.days_left <= 2).length },
+    { k: "3–7 g",        c: css("--warning"),  n: food.filter(i => i.days_left > 2 && i.days_left <= 7).length },
+    { k: "Oltre 7 g",    c: css("--good"),     n: food.filter(i => i.days_left > 7).length },
+  ];
+  draw("chUrg", {
+    type: "bar",
+    data: { labels: buckets.map(b => b.k),
+            datasets: [{ label: "Prodotti", data: buckets.map(b => b.n),
+                         backgroundColor: buckets.map(b => b.c), borderRadius: 4,
+                         borderSkipped: "bottom", maxBarThickness: 60 }] },
+    options: baseOpts(),
+  }, sum(buckets.map(b => b.n)) > 0, "Nessun alimento in casa: importa un ordine.");
+  table($("#tUrg"), ["Fascia", "Prodotti"], buckets.map(b => [b.k, b.n]), "Prodotti per fascia di scadenza");
+
+  const zoneKeys = Object.keys(ZONES);
+  const zc = zoneKeys.map(z => state.items.filter(i => i.storage_zone === z).length);
+  draw("chZone", {
+    type: "bar",
+    data: { labels: zoneKeys.map(z => ZONES[z]),
+            datasets: [{ label: "Prodotti", data: zc,
+                         backgroundColor: [css("--series-1"), css("--series-2"), css("--series-3"), css("--series-4")],
+                         borderRadius: 4, borderSkipped: "left", maxBarThickness: 26 }] },
+    options: { ...baseOpts(), indexAxis: "y",
+      scales: { x: { beginAtZero: true, grid: { color: css("--grid"), drawTicks: false },
+                     border: { display: false }, ticks: { color: css("--ink-muted"), font: { size: 11 } } },
+                y: { grid: { display: false }, border: { color: css("--axis") },
+                     ticks: { color: css("--ink-2"), font: { size: 11.5 } } } } },
+  }, sum(zc) > 0, "Inventario vuoto: importa un ordine per popolarlo.");
+  table($("#tZone"), ["Zona", "Prodotti"], zoneKeys.map((z, n) => [ZONES[z], zc[n]]), "Prodotti per zona");
+}
+
+/* ── Shopping list ─────────────────────────────────────────────────────── */
+async function loadShopping() {
+  const d = await api("/api/shopping-list");
+  $("#cShop").textContent = d.serve.length;
+  $("#shopHorizon").textContent =
+    `Finito, o non basta per i prossimi ${d.horizon_days} giorni (la tua cadenza media fra un ordine e l'altro).`;
+
+  const fill = (sel, rows, emptyMsg) => {
+    const ul = $(sel); ul.textContent = "";
+    if (!rows.length) { ul.append(el("li", { className: "empty", textContent: emptyMsg })); return; }
+    rows.forEach(e => {
+      const li = el("li");
+      li.append(nameCell(e.display_name, e.reason));
+      ul.append(li);
+    });
+  };
+  fill("#shopServe", d.serve, "Niente di urgente.");
+  fill("#shopHave", d.hai_gia, "Niente di cui tu abbia scorta eccessiva.");
+  $("#shopUnknownBox").hidden = !d.finiti_senza_storico.length;
+  if (d.finiti_senza_storico.length) fill("#shopUnknown", d.finiti_senza_storico, "");
+}
+
+/* ── Meals ─────────────────────────────────────────────────────────────── */
+async function loadMeals() {
+  const d = await api("/api/meals");
+  const ul = $("#mealRows"); ul.textContent = "";
+  if (!d.cookable.length) {
+    ul.append(el("li", { className: "empty", textContent: "Nessun piatto salvato. Creane uno qui sotto." }));
+    return;
+  }
+  d.cookable.forEach(m => {
+    const li = el("li");
+    li.append(nameCell(m.name,
+      `${Math.round(m.coverage * 100)} % degli ingredienti in casa · usato ${m.times_used} volte`));
+    if (m.uses_expiring) {
+      const b = el("span", { className: "badge b-soon" });
+      b.append(el("span", { textContent: "◔", "aria-hidden": "true" }),
+               el("span", { textContent: "usa prodotti in scadenza" }));
+      li.append(b);
+    }
+    const acts = el("div", { className: "actions" });
+    const cook = el("button", { type: "button", className: "primary", textContent: "Cucinato" });
+    cook.setAttribute("aria-label", `Segna come cucinato: ${m.name}`);
+    cook.onclick = async () => {
+      const r = await send(`/api/meals/${m.meal_id}/log`);
+      say(r.missing.length
+        ? `${r.meal}: scalati ${r.deducted.length} ingredienti, ${r.missing.length} non erano in inventario`
+        : `${r.meal}: scalati ${r.deducted.length} ingredienti`);
+      refresh();
+    };
+    const del = el("button", { type: "button", textContent: "Elimina" });
+    del.setAttribute("aria-label", `Elimina il piatto ${m.name}`);
+    del.onclick = async () => {
+      if (!confirm(`Eliminare il piatto "${m.name}"?`)) return;
+      await api(`/api/meals/${m.meal_id}`, { method: "DELETE" });
+      say("Piatto eliminato"); loadMeals();
+    };
+    acts.append(cook, del); li.append(acts);
+    ul.append(li);
+  });
+}
+
+function renderChosen() {
+  const box = $("#mChosen"); box.textContent = "";
+  if (!state.chosen.length) {
+    box.append(el("span", { className: "lede", textContent: "Nessun ingrediente ancora." }));
+    return;
+  }
+  state.chosen.forEach(c => {
+    const t = el("span", { className: "tag" });
+    t.append(el("span", { textContent: c.name }));
+    const x = el("button", { type: "button", className: "icon", textContent: "✕" });
+    x.setAttribute("aria-label", `Togli ${c.name}`);
+    x.onclick = () => { state.chosen = state.chosen.filter(y => y.product_id !== c.product_id); renderChosen(); };
+    t.append(x); box.append(t);
+  });
+}
+
+function searchProducts() {
+  const q = $("#mSearch").value.trim().toLowerCase();
+  const ul = $("#mResults"); ul.textContent = "";
+  $("#mSearch").setAttribute("aria-expanded", String(q.length >= 2));
+  if (q.length < 2) return;
+  const seen = new Set(), hits = [];
+  for (const i of state.items) {
+    if (seen.has(i.product_id) || !i.display_name.toLowerCase().includes(q)) continue;
+    seen.add(i.product_id); hits.push(i);
+    if (hits.length >= 6) break;
+  }
+  if (!hits.length) { ul.append(el("li", { className: "empty", textContent: "Nessun prodotto trovato." })); return; }
+  hits.forEach(i => {
+    const li = el("li");
+    li.append(nameCell(i.display_name));
+    const b = el("button", { type: "button", textContent: "＋ Aggiungi" });
+    b.setAttribute("aria-label", `Aggiungi ${i.display_name} al piatto`);
+    b.onclick = () => {
+      if (!state.chosen.some(c => c.product_id === i.product_id))
+        state.chosen.push({ product_id: i.product_id, qty: 1, name: i.display_name });
+      $("#mSearch").value = ""; searchProducts(); renderChosen();
+      say(`${i.display_name} aggiunto`);
+    };
+    li.append(b); ul.append(li);
+  });
+}
+
+/* ── Review queue ──────────────────────────────────────────────────────── */
+async function loadReview() {
+  const d = await api("/api/review-queue");
+  $("#cFix").textContent = d.items.length;
+  const ul = $("#fixRows"); ul.textContent = "";
+  if (!d.items.length) {
+    ul.append(el("li", { className: "empty", textContent: "Tutti i prodotti sono stati riconosciuti. 👌" }));
+    return;
+  }
+  d.items.forEach(p => {
+    const li = el("li");
+    li.append(nameCell(p.display_name, "scadenza prudenziale: 7 giorni in frigo"));
+
+    const zid = `z${p.id}`, did = `d${p.id}`;
+    const zl = el("label", { htmlFor: zid, className: "sr-only", textContent: `Zona per ${p.display_name}` });
+    const zs = el("select", { id: zid });
+    zs.append(el("option", { value: "", textContent: "Zona…" }));
+    Object.entries(ZONES).forEach(([v, t]) => zs.append(el("option", { value: v, textContent: t })));
+    zs.onchange = () => zs.value && patch(p.id, { storage_zone: zs.value });
+
+    const dl = el("label", { htmlFor: did, className: "sr-only", textContent: `Giorni di conservazione per ${p.display_name}` });
+    const di = el("input", { id: did, type: "number", min: "1", max: "730", placeholder: "giorni", style: "width:104px" });
+    di.onchange = () => di.value && patch(p.id, { shelf_life_days: +di.value });
+
+    li.append(zl, zs, dl, di);
+    ul.append(li);
+  });
+}
+async function patch(id, body) {
+  await send(`/api/products/${id}`, body, "PATCH");
+  say("Corretto — non verrà più sovrascritto");
+  refresh();
+}
+
+/* ── Session & import ──────────────────────────────────────────────────── */
+async function loadHealth() {
+  const p = $("#session");
+  try {
+    const h = await api("/api/health");
+    const s = h.session;
+    p.className = "pill " + (s.authenticated ? "ok" : "bad");
+    p.lastElementChild.textContent = s.authenticated
+      ? `Sessione Conad attiva${s.cookies_age_hours != null ? ` · ${s.cookies_age_hours} h fa` : ""}`
+      : "Sessione Conad scaduta";
+  } catch {
+    p.className = "pill bad";
+    p.lastElementChild.textContent = "Server non raggiungibile";
+  }
+}
+
+$("#btnImport").onclick = async e => {
+  const b = e.currentTarget;
+  b.disabled = true; b.textContent = "Importo…";
+  try {
+    const r = await send("/api/import");
+    say(r.orders_added ? `Importati ${r.lots_added} prodotti` : "Nessun ordine nuovo");
+    if (r.overbought?.length)
+      say("Avevi già in casa: " + r.overbought.map(o => o.display_name).join(", ").slice(0, 90));
+    refresh();
+  } catch (err) {
+    say("Import fallito: " + err.message);
+  } finally { b.disabled = false; b.textContent = "Importa ordine"; }
+};
+
+$("#btnTheme").onclick = () => {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark"
+    || (!document.documentElement.getAttribute("data-theme") && matchMedia("(prefers-color-scheme: dark)").matches);
+  document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
+  localStorage.setItem("theme", dark ? "light" : "dark");
+  // Charts bake colours in at construction, so they must be rebuilt on a swap.
+  if (!$("#panel-waste").hidden) loadStats();
+};
+const saved = localStorage.getItem("theme");
+if (saved) document.documentElement.setAttribute("data-theme", saved);
+
+$("#q").addEventListener("input", e => { state.q = e.target.value; renderRows(); });
+$("#mSearch").addEventListener("input", searchProducts);
+$("#btnSaveMeal").onclick = async () => {
+  const name = $("#mName").value.trim();
+  if (!name || !state.chosen.length) { say("Serve un nome e almeno un ingrediente"); return; }
+  await send("/api/meals", { name, ingredients: state.chosen.map(c => ({ product_id: c.product_id, qty: c.qty })) });
+  $("#mName").value = ""; state.chosen = []; renderChosen();
+  say(`Piatto "${name}" salvato`); loadMeals();
+};
+
+async function refresh() {
+  await loadInventory();
+  loadShopping(); loadMeals(); loadReview(); loadHealth();
+  if (!$("#panel-waste").hidden) loadStats();
+}
+renderChosen();
+refresh();
+</script>
+</body>
+</html>
