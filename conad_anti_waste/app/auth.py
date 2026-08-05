@@ -79,7 +79,13 @@ class ConadHttpSession:
             print(f"[!] Session check failed ({e}); session considered invalid.")
             ok = False
         if not ok:
-            print("[!] Session expired or invalid. Re-login once: python3 -m src.auth_interactive")
+            # Deliberately no "run this command": inside the add-on there is no
+            # shell to run it in, and the module this used to name (src.
+            # auth_interactive) is not even in the image. Re-login is automatic
+            # — app.auth_auto.ensure_session() drives app.conad_login. If it
+            # keeps failing it is the captcha score, not a missing command:
+            # see DOCS.md, "Il primo login è la parte delicata".
+            print("[!] Session expired or invalid — automatic re-login will be attempted.")
         return ok
 
 

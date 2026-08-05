@@ -244,6 +244,12 @@ ul.rows > li:last-child { border-bottom: none; }
         </div>
       </div>
       <p id="session" class="pill"><span class="dot" aria-hidden="true"></span><span>Controllo sessione…</span></p>
+      <input id="fileSession" type="file" accept=".gz,.tgz,application/gzip" hidden>
+      <button id="btnSession" class="icon" type="button"
+              title="Importa una sessione Conad preparata sul PC (tar.gz)"
+              aria-label="Importa sessione Conad da file">
+        <span aria-hidden="true">🔑</span>
+      </button>
       <button id="btnImport" class="primary" type="button">Importa ordine</button>
       <button id="btnTheme" class="icon" type="button" aria-label="Cambia tema chiaro/scuro">
         <span aria-hidden="true">◐</span>
@@ -911,6 +917,33 @@ $("#btnImport").onclick = async e => {
   } catch (err) {
     say("Import fallito: " + err.message);
   } finally { b.disabled = false; b.textContent = "Importa ordine"; }
+};
+
+/* Semina la sessione preparata sul PC: il captcha di Conad valuta la
+   reputazione del browser, e un profilo appena creato dentro il container
+   viene rifiutato. Si carica il tar.gz grezzo, senza multipart, perché
+   l'endpoint legge il corpo così com'è. */
+$("#btnSession").onclick = () => $("#fileSession").click();
+
+$("#fileSession").onchange = async e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const b = $("#btnSession");
+  b.disabled = true;
+  try {
+    const r = await api("/api/session/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/gzip" },
+      body: file,
+    });
+    say("Sessione importata: " + r.imported.join(" + "));
+    refresh();
+  } catch (err) {
+    say("Import sessione fallito: " + err.message);
+  } finally {
+    b.disabled = false;
+    e.target.value = "";   // così ricaricare lo stesso file riparte
+  }
 };
 
 $("#btnTheme").onclick = () => {

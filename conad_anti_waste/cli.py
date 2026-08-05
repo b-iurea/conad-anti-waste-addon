@@ -2,6 +2,7 @@
 """Dev and ops CLI.
 
     python cli.py doctor                 # environment / session / db check
+    python cli.py pack-session           # tar.gz della sessione, per l'add-on
     python cli.py backfill               # seed from the parent orders.csv
     python cli.py import [--all]         # fetch from my.conad.it
     python cli.py classify-report        # rule coverage over the catalogue
@@ -39,6 +40,76 @@ def cmd_login(args) -> int:
     print("[+] session OK")
     for k, v in auth_auto.session_status().items():
         print(f"    {k}: {v}")
+    return 0
+
+
+# Le cache che Chrome si rigenera da solo. Sono la gran parte degli ~80 MB di
+# un profilo e non contano nulla per il punteggio del captcha: quello che pesa
+# è Default/History, cioè la cronologia. Togliendole si passa da ~80 MB a meno
+# di mezzo mega, che è la differenza fra un upload scomodo e uno istantaneo.
+_PROFILE_BALLAST = (
+    "Singleton*",          # lock: puntano all'hostname di origine
+    "*Cache*",
+    "ShaderCache",
+    "GrShaderCache",
+    "GraphiteDawnCache",
+    "component_crx_cache",
+    "extensions_crx_cache",
+    "optimization_guide_model_store",
+    "Crashpad",
+)
+
+
+def cmd_pack_session(args) -> int:
+    """Impacchetta cookie + profilo per seminarli altrove.
+
+    L'archivio ha una cartella `sessions/` al primo livello, che è il formato
+    che si aspetta il pulsante 🔑 della dashboard (POST /api/session/import).
+    Funziona sia sul PC sia dentro l'add-on: i percorsi vengono dalle
+    impostazioni, non sono cablati.
+    """
+    import fnmatch
+    import shutil
+    import tarfile
+    import tempfile
+
+    s = get_settings()
+    out = Path(args.out).expanduser().resolve()
+
+    if not s.conad_cookies_path.is_file() and not s.profile_dir.is_dir():
+        print(f"[!] niente da impacchettare: né {s.conad_cookies_path} né {s.profile_dir}")
+        return 1
+
+    if not args.no_check and s.conad_cookies_path.is_file():
+        # Un 302 verso refreshToken.json conta come scaduto: il rinnovo vuole
+        # il protection token del JS, che via HTTP puro non si ottiene.
+        from app.auth import ConadHttpSession
+        if ConadHttpSession(cookies_file=s.conad_cookies_path).is_authenticated():
+            print("[+] cookie validi")
+        else:
+            print("[!] i cookie sono scaduti — rifai prima 'python cli.py login --force'")
+            print("    (--no-check per impacchettare comunque il solo profilo)")
+            return 1
+
+    def _prune(_dir, names):
+        return {n for n in names if any(fnmatch.fnmatch(n, p) for p in _PROFILE_BALLAST)}
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        stage = Path(tmpdir) / "sessions"
+        stage.mkdir()
+        if s.conad_cookies_path.is_file():
+            shutil.copyfile(s.conad_cookies_path, stage / "cookies.json")
+        if s.profile_dir.is_dir():
+            shutil.copytree(s.profile_dir, stage / "chrome-profile", ignore=_prune)
+
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(out, "w:gz") as tar:
+            tar.add(stage, arcname="sessions")
+
+    size = out.stat().st_size
+    print(f"[+] {out}  ({size / 1024:.0f} KB)")
+    print("    Importalo dalla dashboard dell'add-on: pulsante 🔑 in alto a destra,")
+    print("    poi riavvia l'add-on.")
     return 0
 
 
@@ -260,6 +331,13 @@ def main() -> int:
     p = sub.add_parser("login", help="authenticate against Conad (automatic)")
     p.add_argument("--force", action="store_true", help="log in even if the session looks valid")
     p.set_defaults(func=cmd_login)
+
+    p = sub.add_parser("pack-session", help="tar.gz di cookie + profilo, da seminare altrove")
+    p.add_argument("--out", default="conad-session.tar.gz", metavar="FILE",
+                   help="dove scrivere l'archivio (default: ./conad-session.tar.gz)")
+    p.add_argument("--no-check", action="store_true",
+                   help="impacchetta anche se i cookie sono scaduti")
+    p.set_defaults(func=cmd_pack_session)
 
     p = sub.add_parser("backfill", help="seed from the parent orders.csv")
     p.add_argument("--live-from", metavar="YYYY-MM-DD",

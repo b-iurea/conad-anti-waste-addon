@@ -47,15 +47,52 @@ dell'inventario funziona: puoi registrare consumi e sprechi, mancano solo gli
 ordini nuovi.
 
 **B — Semina un profilo già caldo.** Se hai una macchina dove il login
-funziona, copia sessione e profilo nel volume dell'add-on:
+funziona, portane sessione e profilo qui dentro. È la strada che funziona
+quando A continua a fallire.
+
+Sul PC, dopo un login riuscito:
 
 ```bash
-# dal terminale di Home Assistant (add-on SSH o Terminal)
-docker cp cookies.json     addon_local_conad_anti_waste:/data/sessions/cookies.json
-docker cp chrome-profile/  addon_local_conad_anti_waste:/data/sessions/chrome-profile
+python cli.py login --force      # usa il display vero, non Xvfb: punteggio migliore
+python cli.py pack-session       # -> conad-session.tar.gz
 ```
 
-Da lì in poi l'add-on rinnova i cookie da solo.
+`pack-session` si rifiuta di impacchettare cookie scaduti (`--no-check` per
+forzare) e produce un archivio con una cartella `sessions/` al primo livello:
+
+```
+sessions/
+  cookies.json
+  chrome-profile/
+```
+
+Poi apri **Anti Waste** nella sidebar e usa il pulsante 🔑 in alto a destra:
+scegli il file e basta. L'add-on scompatta sul volume, butta via i lock
+`Singleton*` (puntano all'hostname della macchina di origine e confondono il
+Chrome di qui) e azzera il cooldown, così il primo import riparte subito senza
+aspettare `login_cooldown_hours`.
+
+Le cache rigenerabili (`*Cache*`, `optimization_guide_model_store`, `Crashpad`)
+le esclude già `pack-session`: sono la gran parte degli ~80 MB di un profilo e
+non contano nulla per il punteggio. Quello che conta è `Default/History`, cioè
+la cronologia. Un profilo così sta sotto il mezzo megabyte.
+
+Se preferisci la riga di comando, l'equivalente dal terminale di Home
+Assistant è:
+
+```bash
+# Il nome del container NON è sempre lo stesso: da repository git il prefisso
+# è l'hash del repository (es. addon_cde624e8_conad_anti_waste), non "local".
+ADDON=$(docker ps --format '{{.Names}}' | grep conad_anti_waste)
+docker cp sessions "$ADDON:/data/sessions"
+```
+
+In entrambi i casi **riavvia l'add-on**: il profilo si legge all'avvio del
+browser, non viene ricontrollato a caldo.
+
+Da lì in poi l'add-on rinnova i cookie da solo — e spesso senza rifare il
+login vero: con un profilo caldo il redirect a `refreshToken.json` si completa
+dentro il browser, che è molto più economico di un login con captcha.
 
 `/data` è persistente: sopravvive a riavvii, aggiornamenti dell'add-on e
 aggiornamenti di Home Assistant. Il profilo caldo si semina una volta sola.

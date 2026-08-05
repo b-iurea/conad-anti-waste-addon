@@ -73,6 +73,14 @@ def _session() -> ConadHttpSession:
     return ConadHttpSession(cookies_file=get_settings().conad_cookies_path)
 
 
+def clear_cooldown() -> None:
+    """Azzera il cooldown. Da chiamare quando qualcosa è cambiato davvero —
+    p.es. una sessione seminata da fuori — non per riprovare e basta: la
+    raffica di tentativi è ciò che abbassa il punteggio del captcha."""
+    global _last_failure
+    _last_failure = None
+
+
 def _in_cooldown() -> Optional[timedelta]:
     if _last_failure is None:
         return None

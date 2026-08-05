@@ -5,14 +5,18 @@ keeps the code obvious. No CORS: the dashboard is served from the same origin.
 """
 
 import logging
+import shutil
+import tarfile
+import tempfile
 from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from app import auth_auto, db, deals, importer, inventory, meals, stats, velocity
 from app.config import get_settings
@@ -93,6 +97,84 @@ def post_login(force: bool = True):
     except auth_auto.SessionUnavailable as e:
         raise HTTPException(502, str(e)) from e
     return {"ok": True, "session": auth_auto.session_status()}
+
+
+# Il tar della sessione è ~400 KB una volta tolte le cache rigenerabili. Il
+# tetto è largo per non respingere un profilo un po' più grasso, ma finito:
+# il corpo viene letto in memoria.
+MAX_SESSION_UPLOAD = 128 * 1024 * 1024
+
+
+def _unpack_session(blob: bytes) -> dict:
+    """Estrae un tar.gz `sessions/` sul volume. Gira nel threadpool."""
+    s = get_settings()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        archive = tmp / "upload.tar.gz"
+        archive.write_bytes(blob)
+
+        staged = tmp / "staged"
+        staged.mkdir()
+        try:
+            with tarfile.open(archive, "r:gz") as tar:
+                # filter="data" (Python 3.12+) rifiuta percorsi assoluti, `..`,
+                # link fuori dall'albero e file speciali: un tar caricato da
+                # fuori non deve poter scrivere altrove sul volume.
+                tar.extractall(path=staged, filter="data")
+        except tarfile.TarError as e:
+            raise HTTPException(400, f"archivio non valido: {e}") from e
+
+        root = staged / "sessions"
+        if not root.is_dir():
+            raise HTTPException(
+                400, "l'archivio non contiene una cartella 'sessions/' al primo livello "
+                     "— usa il tar prodotto da pack-session.sh")
+
+        imported = []
+
+        cookies_src = root / "cookies.json"
+        if cookies_src.is_file():
+            dest = s.conad_cookies_path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(cookies_src, dest)
+            imported.append("cookies.json")
+
+        profile_src = root / "chrome-profile"
+        if profile_src.is_dir():
+            dest = s.profile_dir
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            # I lock del singleton puntano all'hostname della macchina di
+            # origine: lasciarli confonde il Chrome di qui.
+            for lock in profile_src.glob("Singleton*"):
+                lock.unlink(missing_ok=True)
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.move(str(profile_src), str(dest))
+            imported.append("chrome-profile")
+
+        if not imported:
+            raise HTTPException(400, "nessun cookies.json né chrome-profile nell'archivio")
+
+    # La sessione appena seminata merita un tentativo subito: senza questo il
+    # cooldown di un fallimento precedente terrebbe fermo l'import per ore.
+    auth_auto.clear_cooldown()
+    log.info("sessione importata: %s", ", ".join(imported))
+    return {"ok": True, "imported": imported, "session": auth_auto.session_status()}
+
+
+@app.post("/api/session/import")
+async def post_session_import(request: Request):
+    """Semina cookie e profilo Chrome da un tar.gz caricato dalla dashboard.
+
+    Il corpo è il tar.gz grezzo, non un multipart: così non serve aggiungere
+    python-multipart alle dipendenze per l'unico upload dell'applicazione.
+    """
+    blob = await request.body()
+    if not blob:
+        raise HTTPException(400, "corpo vuoto: carica il tar.gz della sessione")
+    if len(blob) > MAX_SESSION_UPLOAD:
+        raise HTTPException(413, f"archivio troppo grande (max {MAX_SESSION_UPLOAD // 1024 // 1024} MB)")
+    return await run_in_threadpool(_unpack_session, blob)
 
 
 @app.get("/")
