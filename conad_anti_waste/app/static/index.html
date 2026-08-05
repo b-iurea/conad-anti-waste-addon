@@ -423,8 +423,17 @@ function say(msg) {
   clearTimeout(say._t); say._t = setTimeout(() => n.classList.remove("on"), 3200);
 }
 
+/* Sotto l'ingress di Home Assistant la dashboard non è servita da "/", ma da
+   /api/hassio_ingress/<token>/ . Un fetch("/api/health") uscirebbe da quel
+   prefisso e finirebbe sull'API di Home Assistant — che risponde 404. Quindi
+   ogni chiamata si risolve relativa alla cartella della pagina: sotto ingress
+   prende il prefisso, in accesso diretto resta "/". L'ingress rimuove il
+   prefisso prima di inoltrare, quindi il server non deve saperne nulla. */
+const BASE = location.pathname.endsWith("/") ? location.pathname : location.pathname + "/";
+const apiUrl = u => BASE + String(u).replace(/^\//, "");
+
 async function api(url, opts) {
-  const r = await fetch(url, opts);
+  const r = await fetch(apiUrl(url), opts);
   if (!r.ok) {
     const d = await r.json().catch(() => ({}));
     throw new Error(d.detail || `${r.status} ${r.statusText}`);
