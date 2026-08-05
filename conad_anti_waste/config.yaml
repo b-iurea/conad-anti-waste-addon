@@ -58,4 +58,7 @@ schema:
   login_cooldown_hours: int(1,48)
   log_level: list(trace|debug|info|notice|warning|error|fatal)
 
-image: ghcr.io/USERNAME/conad-anti-waste-{arch}
+# Nessun `image:`: senza quella chiave il Supervisor costruisce l'add-on in
+# locale dal Dockerfile e da build.yaml. Va reintrodotta solo quando esiste
+# davvero un'immagine pubblicata (e il path va tutto in minuscolo, altrimenti
+# la validazione scarta l'add-on e non compare nello store).
